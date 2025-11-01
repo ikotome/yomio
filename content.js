@@ -7,7 +7,7 @@ const GHOST_W = 60;
 const GHOST_H = 60;
 const MAX_GHOSTS = 30; // 表示上限
 // 開発時に自分のゴースト（同一 session_id）を表示したい場合は true にする
-const SHOW_SELF_GHOST = true;
+const SHOW_SELF_GHOST = false;
 
 function createGhostElement() {
   const g = document.createElement('img');
