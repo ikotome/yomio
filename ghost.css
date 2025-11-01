@@ -1,25 +1,12 @@
 #ghost {
-  position: fixed;
-  width: 60px;
-  height: 60px;
-  left: 20px;
-  top: 50%;
-  pointer-events: none;
+  z-index: 9999;
   opacity: 0.95;
-  transition: top 1.8s ease-in-out;
-  animation: float 4s ease-in-out infinite, spin 12s ease-in-out infinite;
+  transform-origin: center;
+  animation: float 4s ease-in-out infinite alternate;
 }
 
 @keyframes float {
-  0%   { transform: translateY(-8px) scale(1); }
-  50%  { transform: translateY(8px) scale(1.03); }
-  100% { transform: translateY(-8px) scale(1); }
-}
-
-@keyframes spin {
-  0%   { transform: rotate(0deg); }
-  45%  { transform: rotate(1deg); }   /* ほぼ動かない→優しめ */
-  50%  { transform: rotate(360deg); } /* ここで一瞬クルッ */
-  55%  { transform: rotate(359deg); }
-  100% { transform: rotate(360deg); }
+  0%   { transform: translateY(-5px) scale(1); }
+  50%  { transform: translateY(5px) scale(1.03); }
+  100% { transform: translateY(-5px) scale(1); }
 }

@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Ghost Viewer - Full Character",
-  "version": "0.1",
-  "description": "ゆるキャラ風ゴーストが画面にふわっと現れる拡張（ローカル版）",
+  "name": "Ghost Viewer",
+  "version": "1.0",
+  "description": "ユーザーが見ている画面内をゴーストがふわふわ動く拡張",
+  "permissions": ["storage"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -12,7 +13,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["ghost.svg"],
+      "resources": ["assets/ghost.svg"],
       "matches": ["<all_urls>"]
     }
   ]
