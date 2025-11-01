@@ -12,7 +12,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["config.json"],
+      "resources": ["ghost.svg"],
       "matches": ["<all_urls>"]
     }
   ]
