@@ -1,6 +1,3 @@
-// Supabase Database types for this project
-// Keep this in sync with the actual Supabase table schema.
-
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
 export type Database = {
@@ -40,10 +37,11 @@ export type Database = {
           stayed?: boolean | null;
           created_at?: string | null;
         };
+        Relationships: [];
       };
     };
-    Views: Record<string, unknown>;
-    Functions: Record<string, unknown>;
-    Enums: Record<string, unknown>;
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+    Enums: { [_ in never]: never };
   };
 };
