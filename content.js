@@ -4,22 +4,35 @@
 const GHOST_IMAGE = chrome.runtime.getURL("assets/ghost.svg");
 
 // -------------------------------
-// ゴースト要素作成
+// ゴースト要素作成（動的）
 // -------------------------------
-const GHOST_COUNT = 5; // 表示するゴーストの数
 const ghosts = [];
+const GHOST_W = 60;
+const GHOST_H = 60;
+const MAX_GHOSTS = 30; // 上限（表示負荷対策）
 
-for (let i = 0; i < GHOST_COUNT; i++) {
+function createGhostElement() {
   const g = document.createElement("img");
   g.src = GHOST_IMAGE;
   g.classList.add("ghost");
   g.style.position = "fixed";
-  g.style.width = "60px";
-  g.style.height = "60px";
+  g.style.width = `${GHOST_W}px`;
+  g.style.height = `${GHOST_H}px`;
   g.style.pointerEvents = "none";
   g.style.transition = "top 1.5s ease-in-out, left 1.5s ease-in-out";
   document.body.appendChild(g);
-  ghosts.push(g);
+  return g;
+}
+
+function ensureGhostCount(n) {
+  const target = Math.max(0, Math.min(n, MAX_GHOSTS));
+  while (ghosts.length < target) {
+    ghosts.push(createGhostElement());
+  }
+  while (ghosts.length > target) {
+    const g = ghosts.pop();
+    if (g && g.parentNode) g.parentNode.removeChild(g);
+  }
 }
 
 // -------------------------------
@@ -33,8 +46,9 @@ fetch(chrome.runtime.getURL('config.json'))
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const sessionId = localStorage.getItem('ghost_session') || crypto.randomUUID();
-    localStorage.setItem('ghost_session', sessionId);
+  const sessionId = localStorage.getItem('ghost_session') || crypto.randomUUID();
+  localStorage.setItem('ghost_session', sessionId);
+  const currentPage = window.location.href; // 現在のページで絞り込むための識別子
 
     // -------------------------------
     // 自分のスクロール位置を送信
@@ -42,7 +56,9 @@ fetch(chrome.runtime.getURL('config.json'))
     function sendScrollPosition() {
       const data = {
         session_id: sessionId,
+        page_url: currentPage,
         scroll_top: window.scrollY,
+        scroll_left: window.scrollX,
         viewport_height: window.innerHeight,
         viewport_width: window.innerWidth
       };
@@ -61,41 +77,59 @@ fetch(chrome.runtime.getURL('config.json'))
       try {
         const res = await supabaseClient
           .from('ghost_positions')
-          .select('scroll_top, viewport_height, viewport_width, created_at')
-          .gte('created_at', oneMinuteAgo);
+          .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, created_at')
+          .gte('created_at', oneMinuteAgo)
+          .eq('page_url', currentPage);
 
-        const data = res.data || [];
-        if (!data.length) return;
+        let data = res.data || [];
+        if (!data.length) {
+          // 既存ゴーストは消す
+          ensureGhostCount(0);
+          return;
+        }
 
-        // 各レコードのビューポート中心（ドキュメント座標）を算出して平均を取る
-        // 利用可能なフィールド: scroll_top, viewport_height, viewport_width
-        const avgCenterY = data.reduce((acc, row) => {
-          const scrollTop = Number(row.scroll_top || 0);
-          const vh = Number(row.viewport_height) || window.innerHeight;
-          return acc + (scrollTop + vh / 2);
-        }, 0) / data.length;
+        // サーバー側で最新の MAX_GHOSTS 件のみ取得する（可能であれば）。
+        // created_at 降順で取得して最新を優先する。
+        try {
+          const q = await supabaseClient
+            .from('ghost_positions')
+            .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, created_at')
+            .gte('created_at', oneMinuteAgo)
+            .eq('page_url', currentPage)
+            .order('created_at', { ascending: false })
+            .limit(MAX_GHOSTS);
+          data = q.data || data.slice(0, MAX_GHOSTS);
+        } catch (e) {
+          // サーバー側でのソート/制限が使えない場合はクライアント側でトリム
+          data = data.slice(-MAX_GHOSTS);
+        }
 
-        // 横はスクロール X を送っていないため、各ビューポートの中心の平均を使う (fallback)
-        const avgCenterX = data.reduce((acc, row) => {
-          const vw = Number(row.viewport_width) || window.innerWidth;
-          return acc + (vw / 2);
-        }, 0) / data.length;
+        // レコード数に応じてゴースト数を合わせる（1データ = 1ゴースト）
+        ensureGhostCount(data.length);
 
         const currentScrollY = window.scrollY;
         const currentScrollX = window.scrollX;
-        const GHOST_W = 60;
-        const GHOST_H = 60;
 
-        ghosts.forEach((ghost) => {
+        data.forEach((row, idx) => {
+          const ghost = ghosts[idx];
+          if (!ghost) return;
+
+          const scrollTop = Number(row.scroll_top || 0);
+          const vh = Number(row.viewport_height) || window.innerHeight;
+          const docCenterY = scrollTop + vh / 2;
+
+          // 横位置は送られていれば使い、なければビューポート中心を使う
+          const scrollLeft = row.scroll_left != null ? Number(row.scroll_left) : null;
+          const vw = Number(row.viewport_width) || window.innerWidth;
+          const docCenterX = (scrollLeft != null ? scrollLeft : 0) + vw / 2;
+
           // 少しランダムに振る
           const jitterY = (Math.random() * 60 - 30);
           const jitterX = (Math.random() * 120 - 60);
 
-          // ドキュメント中心座標 -> 現在のビューポート座標に変換
-          let top = avgCenterY - currentScrollY - GHOST_H / 2 + jitterY;
-          let left = avgCenterX - currentScrollX - GHOST_W / 2 + jitterX;
+          let top = docCenterY - currentScrollY - GHOST_H / 2 + jitterY;
+          let left = docCenterX - currentScrollX - GHOST_W / 2 + jitterX;
 
-          // ビューポート内に収める
           top = Math.max(0, Math.min(top, window.innerHeight - GHOST_H));
           left = Math.max(0, Math.min(left, window.innerWidth - GHOST_W));
 
@@ -110,4 +144,6 @@ fetch(chrome.runtime.getURL('config.json'))
     setInterval(moveGhosts, 2000);
     window.addEventListener("scroll", moveGhosts);
     window.addEventListener("resize", moveGhosts);
+    // 初回実行してゴースト数をすぐ反映
+    moveGhosts();
   });
