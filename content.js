@@ -58,23 +58,52 @@ fetch(chrome.runtime.getURL('config.json'))
     // -------------------------------
     async function moveGhosts() {
       const oneMinuteAgo = new Date(Date.now() - 60*1000).toISOString();
-      const { data } = await supabaseClient
-        .from('ghost_positions')
-        .select('scroll_top, viewport_height, viewport_width')
-        .gte('created_at', oneMinuteAgo);
+      try {
+        const res = await supabaseClient
+          .from('ghost_positions')
+          .select('scroll_top, viewport_height, viewport_width, created_at')
+          .gte('created_at', oneMinuteAgo);
 
-      if (data && data.length) {
-        // 縦横ともに人気位置平均
-        const avgTop = data.reduce((acc,row)=>acc+row.scroll_top,0)/data.length;
-        const avgLeft = data.reduce((acc,row)=>acc+row.viewport_width/2,0)/data.length;
+        const data = res.data || [];
+        if (!data.length) return;
 
-        // 複数ゴーストに少しずつランダム振り分け
-        ghosts.forEach((ghost, idx) => {
-          const top = avgTop + (Math.random()*60 - 30);
-          const left = avgLeft + (Math.random()*120 - 60);
+        // 各レコードのビューポート中心（ドキュメント座標）を算出して平均を取る
+        // 利用可能なフィールド: scroll_top, viewport_height, viewport_width
+        const avgCenterY = data.reduce((acc, row) => {
+          const scrollTop = Number(row.scroll_top || 0);
+          const vh = Number(row.viewport_height) || window.innerHeight;
+          return acc + (scrollTop + vh / 2);
+        }, 0) / data.length;
+
+        // 横はスクロール X を送っていないため、各ビューポートの中心の平均を使う (fallback)
+        const avgCenterX = data.reduce((acc, row) => {
+          const vw = Number(row.viewport_width) || window.innerWidth;
+          return acc + (vw / 2);
+        }, 0) / data.length;
+
+        const currentScrollY = window.scrollY;
+        const currentScrollX = window.scrollX;
+        const GHOST_W = 60;
+        const GHOST_H = 60;
+
+        ghosts.forEach((ghost) => {
+          // 少しランダムに振る
+          const jitterY = (Math.random() * 60 - 30);
+          const jitterX = (Math.random() * 120 - 60);
+
+          // ドキュメント中心座標 -> 現在のビューポート座標に変換
+          let top = avgCenterY - currentScrollY - GHOST_H / 2 + jitterY;
+          let left = avgCenterX - currentScrollX - GHOST_W / 2 + jitterX;
+
+          // ビューポート内に収める
+          top = Math.max(0, Math.min(top, window.innerHeight - GHOST_H));
+          left = Math.max(0, Math.min(left, window.innerWidth - GHOST_W));
+
           ghost.style.top = `${top}px`;
           ghost.style.left = `${left}px`;
         });
+      } catch (err) {
+        console.error('Supabase select error:', err);
       }
     }
 
