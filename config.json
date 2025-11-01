@@ -1,4 +1,6 @@
 {
   "SUPABASE_URL": "https://pshotizhcqalmurcmpgz.supabase.co/",
   "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBzaG90aXpoY3FhbG11cmNtcGd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5NzA2MjIsImV4cCI6MjA3NzU0NjYyMn0.fjmcAeh2FHS6kpitK-WitQjCWczkC5O7aBse9o1Rs8s"
+  ,
+  "SHOW_SELF_GHOST": false
 }

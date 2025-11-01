@@ -12,8 +12,6 @@ const ghosts: HTMLImageElement[] = [];
 const GHOST_W = 60;
 const GHOST_H = 60;
 const MAX_GHOSTS = 30; // 表示上限
-// 開発時に自分のゴースト（同一 session_id）を表示したい場合は true にする
-const SHOW_SELF_GHOST = false;
 
 // -------------------------------
 // ユーティリティ
@@ -77,6 +75,7 @@ async function initGhostSync() {
     const config = await res.json();
     const SUPABASE_URL = config.SUPABASE_URL;
     const SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY;
+  const showSelfGhost = Boolean(config.SHOW_SELF_GHOST ?? false);
 
   const supabaseClient: SupabaseClient<Database> = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -117,7 +116,7 @@ async function initGhostSync() {
     async function moveGhosts() {
       try {
         const { fetchGhostPositions } = await import('./lib/supabaseHelpers');
-        const q = await fetchGhostPositions(supabaseClient, currentPage, SHOW_SELF_GHOST ? null : sessionId, MAX_GHOSTS);
+  const q = await fetchGhostPositions(supabaseClient, currentPage, showSelfGhost ? null : sessionId, MAX_GHOSTS);
         if (q.error) {
           console.error('Supabase fetch error:', q.error);
           ensureGhostCount(0);
