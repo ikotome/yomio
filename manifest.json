@@ -5,13 +5,13 @@
   "description": "ユーザーが見ている画面内をゴーストがふわふわ動く拡張",
   "permissions": ["storage"],
   "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["ghost.css"]
-    }
-  ],
-  "web_accessible_resources": [
+  {
+    "matches": ["<all_urls>"],
+    "js": ["https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/supabase.min.js", "content.js"],
+    "css": ["ghost.css"]
+  }
+],
+    "web_accessible_resources": [
     {
       "resources": ["assets/ghost.svg"],
       "matches": ["<all_urls>"]
