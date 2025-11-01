@@ -117,8 +117,7 @@ export async function initGhostSync(): Promise<() => void> {
           let top = docCenterY - currentScrollY - GHOST_H / 2;
           let left = docCenterX - currentScrollX - GHOST_W / 2;
 
-          top = Math.max(0, Math.min(top, window.innerHeight - GHOST_H));
-          left = Math.max(0, Math.min(left, window.innerWidth - GHOST_W));
+          // 端で自然に見切れるようにビューポート内へのクランプは行わない
 
           // 初回は位置確定→フェードイン、以後は目標だけ更新して滑らかに追従
           const firstPlacement = ghost.style.opacity === '0' || ghost.style.visibility === 'hidden';
