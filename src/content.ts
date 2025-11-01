@@ -1,8 +1,14 @@
 // -------------------------------
 // キャラクター差し替え用定数
 // -------------------------------
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from './types/supabase';
+
+type GhostInsert = Database['public']['Tables']['ghost_positions']['Insert'];
+type GhostRow = Database['public']['Tables']['ghost_positions']['Row'];
+
 const GHOST_IMAGE = chrome.runtime.getURL('assets/ghost.svg');
-const ghosts = [];
+const ghosts: HTMLImageElement[] = [];
 const GHOST_W = 60;
 const GHOST_H = 60;
 const MAX_GHOSTS = 30; // 表示上限
@@ -13,20 +19,23 @@ const SHOW_SELF_GHOST = false;
 // ユーティリティ
 // -------------------------------
 /** 単純なデバウンス */
-function debounce(fn, wait) {
-  let t = null;
-  const wrapped = (...args) => {
-    if (t) clearTimeout(t);
+type Debounced<T extends unknown[]> = ((...args: T) => void) & { cancel?: () => void };
+
+/** 単純なデバウンス */
+function debounce<T extends unknown[]>(fn: (...args: T) => void, wait: number): Debounced<T> {
+  let t: ReturnType<typeof setTimeout> | null = null;
+  const wrapped = (...args: T) => {
+    if (t) clearTimeout(t as ReturnType<typeof setTimeout>);
     t = setTimeout(() => {
       t = null;
       fn(...args);
     }, wait);
   };
-  wrapped.cancel = () => {
-    if (t) clearTimeout(t);
+  (wrapped as Debounced<T>).cancel = () => {
+    if (t) clearTimeout(t as ReturnType<typeof setTimeout>);
     t = null;
   };
-  return wrapped;
+  return wrapped as Debounced<T>;
 }
 
 function createGhostElement() {
@@ -49,7 +58,7 @@ function createGhostElement() {
   return g;
 }
 
-function ensureGhostCount(n) {
+function ensureGhostCount(n: number) {
   const target = Math.max(0, Math.min(n, MAX_GHOSTS));
   while (ghosts.length < target) ghosts.push(createGhostElement());
   while (ghosts.length > target) {
@@ -69,7 +78,7 @@ async function initGhostSync() {
     const SUPABASE_URL = config.SUPABASE_URL;
     const SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY;
 
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const supabaseClient: SupabaseClient<Database> = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const sessionId = localStorage.getItem('ghost_session') || crypto.randomUUID();
     localStorage.setItem('ghost_session', sessionId);
@@ -77,7 +86,7 @@ async function initGhostSync() {
 
     // スクロール位置を送信する（エラーはログのみ）
     async function sendScrollPosition(stayed = false) {
-      const data = {
+      const data: GhostInsert = {
         session_id: sessionId,
         page_url: currentPage,
         scroll_top: window.scrollY,
@@ -87,7 +96,8 @@ async function initGhostSync() {
         stayed: stayed === true
       };
       try {
-        const r = await supabaseClient.from('ghost_positions').insert([data]);
+        const { insertGhostPositions } = await import('./lib/supabaseHelpers');
+        const r = await insertGhostPositions(supabaseClient, [data]);
         if (r.error) console.error('Supabase insert error:', r.error);
       } catch (e) {
         console.error('Supabase insert exception:', e);
@@ -103,40 +113,35 @@ async function initGhostSync() {
     sendScrollPosition(false);
 
     // 他ユーザーの位置を取得してゴーストを動かす
-    let moveIntervalId = null;
+    let moveIntervalId: number | null = null;
     async function moveGhosts() {
       try {
-        let qBuilder = supabaseClient
-          .from('ghost_positions')
-          .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, stayed, created_at')
-          .eq('page_url', currentPage);
-
-        if (!SHOW_SELF_GHOST) qBuilder = qBuilder.neq('session_id', sessionId);
-
-        const q = await qBuilder.order('created_at', { ascending: false }).limit(MAX_GHOSTS);
+        const { fetchGhostPositions } = await import('./lib/supabaseHelpers');
+        const q = await fetchGhostPositions(supabaseClient, currentPage, SHOW_SELF_GHOST ? null : sessionId, MAX_GHOSTS);
         if (q.error) {
           console.error('Supabase fetch error:', q.error);
           ensureGhostCount(0);
           return;
         }
 
-        const data = q.data || [];
-        if (!data.length) {
+        const rows = (q.data || []) as GhostRow[];
+        if (!rows.length) {
           ensureGhostCount(0);
           return;
         }
 
-        // セッションごとに最新を採用
-        const latestBySession = new Map();
-        data.forEach(r => {
+  // セッションごとに最新を採用
+  const latestBySession = new Map<string, GhostRow>();
+
+  rows.forEach((r: GhostRow) => {
           const sid = r.session_id || '__unknown__';
           const cur = latestBySession.get(sid);
           if (!cur) latestBySession.set(sid, r);
-          else if (new Date(r.created_at).getTime() > new Date(cur.created_at).getTime()) latestBySession.set(sid, r);
+          else if (new Date(String(r.created_at)).getTime() > new Date(String(cur.created_at)).getTime()) latestBySession.set(sid, r);
         });
 
         const show = Array.from(latestBySession.values())
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .sort((a: GhostRow, b: GhostRow) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime())
           .slice(0, MAX_GHOSTS);
 
         ensureGhostCount(show.length);
@@ -144,11 +149,11 @@ async function initGhostSync() {
         const currentScrollY = window.scrollY;
         const currentScrollX = window.scrollX;
 
-        show.forEach((row, idx) => {
+        show.forEach((row: GhostRow, idx: number) => {
           const ghost = ghosts[idx];
           if (!ghost) return;
 
-          const scrollTop = Number(row.scroll_top || 0);
+          const scrollTop = Number(row.scroll_top ?? 0);
           const vh = Number(row.viewport_height) || window.innerHeight;
           const docCenterY = scrollTop + vh / 2;
 
@@ -188,8 +193,8 @@ async function initGhostSync() {
       }
       window.removeEventListener('scroll', boundMove);
       window.removeEventListener('resize', boundMove);
-      window.removeEventListener('scroll', debouncedSend, { passive: true });
-      debouncedSend.cancel && debouncedSend.cancel();
+        window.removeEventListener('scroll', debouncedSend as EventListener);
+        debouncedSend.cancel?.();
       // DOMからゴーストを削除
       while (ghosts.length) {
         const g = ghosts.pop();
@@ -199,7 +204,7 @@ async function initGhostSync() {
 
     window.addEventListener('beforeunload', () => {
       // 可能なら最終位置を送る（非同期だが試みる）
-      try { sendScrollPosition(true); } catch (e) { /* ignore */ }
+      try { sendScrollPosition(true); } catch { /* ignore */ }
       cleanup();
     });
 
