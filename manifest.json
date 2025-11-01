@@ -1,12 +1,19 @@
 {
   "manifest_version": 3,
-  "name": "Ghost Scroll Viewer",
-  "version": "1.0",
+  "name": "Ghost Viewer - Full Character",
+  "version": "0.1",
+  "description": "ゆるキャラ風ゴーストが画面にふわっと現れる拡張（ローカル版）",
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "css": ["ghost.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["config.json"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

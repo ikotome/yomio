@@ -1,32 +1,32 @@
-// ゴースト生成
+// SVG ゴースト生成
 const ghost = document.createElement("div");
 ghost.id = "ghost";
+ghost.innerHTML = `
+<svg viewBox="0 0 100 100" width="100" height="100">
+  <!-- 体 -->
+  <path d="M50 10
+           C75 10, 90 35, 90 60
+           C90 85, 75 95, 50 95
+           C25 95, 10 85, 10 60
+           C10 35, 25 10, 50 10Z"
+        fill="white" stroke="#eaeaea" stroke-width="2" />
+  <!-- 目 -->
+  <circle cx="40" cy="45" r="6" fill="#222" />
+  <circle cx="60" cy="45" r="6" fill="#222" />
+  <!-- 口（ゆるい） -->
+  <path d="M38 63 Q50 72 62 63" stroke="#222" stroke-width="3" fill="none" stroke-linecap="round"/>
+</svg>
+`;
+
 document.body.appendChild(ghost);
 
-// 縦位置ごとの滞在時間
-const viewScore = {};
-function getBlock() {
-  return Math.floor(window.scrollY / 100);
-}
-
-setInterval(() => {
-  const b = getBlock();
-  viewScore[b] = (viewScore[b] || 0) + 1;
-}, 1000);
-
-// ゴースト移動
+// ゆっくり動く（ランダムに上下へ）
 function moveGhost() {
-  let max = 0;
-  let best = 0;
-  for (const b in viewScore) {
-    if (viewScore[b] > max) {
-      max = viewScore[b];
-      best = b;
-    }
-  }
-
-  const targetY = best * 100 + 50;
-  ghost.style.top = `calc(${targetY}px - ${window.scrollY}px)`;
+  const scrollY = window.scrollY;
+  const viewportHeight = window.innerHeight;
+  const offset = Math.random() * viewportHeight * 0.6;
+  const targetY = scrollY + offset;
+  ghost.style.top = `${targetY}px`;
 }
 
-setInterval(moveGhost, 2000);
+setInterval(moveGhost, 2600);
