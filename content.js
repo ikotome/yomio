@@ -79,52 +79,23 @@ fetch(chrome.runtime.getURL('config.json'))
           }
         });
     }
-    // 送信はスクロールがあったときに行う（初回は必ず送信）
-    const SEND_INTERVAL = 5000;
-    const SCROLL_STOP_DEBOUNCE = 250; // スクロール停止検出のデバウンス(ms)
-    const STAY_DURATION = 10000; // 10秒以上滞在したら stayed=true を送る
+    // 送信は「スクロールイベント後に最後のスクロールから10秒経過したら一度送る」方式にする
+    // （デバウンス）
+    const DEBOUNCE_SEND_DELAY = 10000; // ms
+    let sendTimer = null;
 
-    let scrollDirty = false;
-    let scrollStopTimer = null;
-    let stayTimer = null;
-    let lastSentStayedAt = 0; // 重複送信防止
-
-    // スクロールイベントでフラグを立て、停止検出と滞在判定タイマーを管理する
     window.addEventListener('scroll', () => {
-      scrollDirty = true;
-
-      // スクロールが続く間は停止タイマーをリセット
-      if (scrollStopTimer) clearTimeout(scrollStopTimer);
-      if (stayTimer) {
-        clearTimeout(stayTimer);
-        stayTimer = null;
-      }
-
-      // スクロールが停止したと見なすまで待つ
-      scrollStopTimer = setTimeout(() => {
-        // スクロール停止 → 滞在判定タイマーを開始
-        const start = Date.now();
-        stayTimer = setTimeout(() => {
-          // 10秒間移動がなかったので stayed=true で送信
-          // 重複送信防止: 直近で送っていればスキップ
-          if (Date.now() - lastSentStayedAt > STAY_DURATION) {
-            sendScrollPosition(true);
-            lastSentStayedAt = Date.now();
-          }
-        }, STAY_DURATION);
-      }, SCROLL_STOP_DEBOUNCE);
+      // 既存のタイマーがあればリセットして、最後のスクロールから DEBOUNCE_SEND_DELAY 後に送信する
+      if (sendTimer) clearTimeout(sendTimer);
+      sendTimer = setTimeout(() => {
+        sendScrollPosition(true);
+        sendTimer = null;
+      }, DEBOUNCE_SEND_DELAY);
     }, { passive: true });
 
-    // 初回送信
-    sendScrollPosition();
-
-    // 定期チェックでスクロールが発生していれば送信する（stayed は上のロジックで送る）
-    setInterval(() => {
-      if (scrollDirty) {
-        sendScrollPosition(false);
-        scrollDirty = false;
-      }
-    }, SEND_INTERVAL);
+    // （オプション）初回は送らない設計にする場合は以下をコメントアウトしてください。
+    // 初回送信（ページ読み込み時に現在位置を一度送る）
+    sendScrollPosition(false);
 
     // -------------------------------
     // 人気位置にゴーストを移動
@@ -136,8 +107,13 @@ fetch(chrome.runtime.getURL('config.json'))
           .from('ghost_positions')
           .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, stayed, created_at')
           .gte('created_at', oneMinuteAgo)
-          .eq('page_url', currentPage);
-        //  .neq('session_id', sessionId);
+          .eq('page_url', currentPage)
+          .neq('session_id', sessionId);
+
+        if (res.error) {
+          console.error('Supabase initial fetch error:', res.error);
+          return;
+        }
 
         let data = res.data || [];
         if (!data.length) {
@@ -157,39 +133,34 @@ fetch(chrome.runtime.getURL('config.json'))
             .neq('session_id', sessionId)
             .order('created_at', { ascending: false })
             .limit(MAX_GHOSTS);
-          data = q.data || data.slice(0, MAX_GHOSTS);
+          if (q.error) {
+            console.error('Supabase ordered fetch error:', q.error);
+            data = data.slice(0, MAX_GHOSTS);
+          } else {
+            data = q.data || data.slice(0, MAX_GHOSTS);
+          }
         } catch (e) {
           // サーバー側でのソート/制限が使えない場合はクライアント側でトリム
           data = data.slice(-MAX_GHOSTS);
         }
 
-        // セッションごとに最新の "滞在（stayed）" レコードを選ぶ。
-        // フォールバック: stayed カラムが無い場合は created_at が現在から >=STAY_DURATION のものを滞在とみなす。
-        const now = Date.now();
-        const sessions = new Map();
+        // セッションごとに最新のレコードのみを採用する（同一 session_id の複数情報は最新1件にまとめる）
+        const latestBySession = new Map();
         data.forEach(r => {
           const sid = r.session_id || '__unknown__';
-          if (!sessions.has(sid)) sessions.set(sid, []);
-          sessions.get(sid).push(r);
-        });
-
-        const rowsToShow = [];
-        sessions.forEach((rows) => {
-          // created_at 降順にソートして最新順にする
-          rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-          // まず stayed === true の最新を探す
-          let picked = rows.find(r => r.stayed === true);
-          if (!picked) {
-            // stayed が無いか false の場合、created_at が STAY_DURATION 以上前の最新レコードを探す
-            picked = rows.find(r => (now - new Date(r.created_at).getTime()) >= STAY_DURATION);
+          const cur = latestBySession.get(sid);
+          if (!cur) {
+            latestBySession.set(sid, r);
+          } else {
+            const curTime = new Date(cur.created_at).getTime();
+            const rTime = new Date(r.created_at).getTime();
+            if (rTime > curTime) latestBySession.set(sid, r);
           }
-          if (picked) rowsToShow.push(picked);
         });
 
-        // 最新のものを優先して上限まで使う
-        rowsToShow.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        const show = rowsToShow.slice(0, MAX_GHOSTS);
+        const show = Array.from(latestBySession.values())
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .slice(0, MAX_GHOSTS);
 
         // レコード数に応じてゴースト数を合わせる（1データ = 1ゴースト）
         ensureGhostCount(show.length);
