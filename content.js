@@ -6,6 +6,8 @@ const ghosts = [];
 const GHOST_W = 60;
 const GHOST_H = 60;
 const MAX_GHOSTS = 30; // 表示上限
+// 開発時に自分のゴースト（同一 session_id）を表示したい場合は true にする
+const SHOW_SELF_GHOST = true;
 
 function createGhostElement() {
   const g = document.createElement('img');
@@ -91,13 +93,17 @@ async function initGhostSync() {
     // 他ユーザーの位置を取得してゴーストを動かす（単一のフェイルパス、過剰なフォールバックは無し）
     async function moveGhosts() {
       try {
-        const q = await supabaseClient
+        // クエリは開発用フラグで自セッションを含める/除外する
+        let qBuilder = supabaseClient
           .from('ghost_positions')
           .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, stayed, created_at')
-          .eq('page_url', currentPage)
-          .neq('session_id', sessionId)
-          .order('created_at', { ascending: false })
-          .limit(MAX_GHOSTS);
+          .eq('page_url', currentPage);
+
+        if (!SHOW_SELF_GHOST) {
+          qBuilder = qBuilder.neq('session_id', sessionId);
+        }
+
+        const q = await qBuilder.order('created_at', { ascending: false }).limit(MAX_GHOSTS);
 
         if (q.error) {
           console.error('Supabase fetch error:', q.error);
