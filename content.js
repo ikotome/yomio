@@ -53,35 +53,75 @@ fetch(chrome.runtime.getURL('config.json'))
     // -------------------------------
     // 自分のスクロール位置を送信
     // -------------------------------
-    function sendScrollPosition() {
+    function sendScrollPosition(stayed = false) {
       const data = {
         session_id: sessionId,
         page_url: currentPage,
         scroll_top: window.scrollY,
         scroll_left: window.scrollX,
         viewport_height: window.innerHeight,
-        viewport_width: window.innerWidth
+        viewport_width: window.innerWidth,
+        stayed: stayed === true
       };
       supabaseClient.from('ghost_positions').insert([data])
         .then(res => {
-          if (res.error) console.error('Supabase insert error:', res.error);
+          if (res.error) {
+            // もし stayed カラムが存在しないなどでエラーになったら、stayed を外して再送する
+            const msg = (res.error && res.error.message) ? String(res.error.message) : '';
+            if (msg.includes('stayed') || msg.includes('column') && msg.includes('stayed')) {
+              const data2 = { ...data };
+              delete data2.stayed;
+              supabaseClient.from('ghost_positions').insert([data2])
+                .then(res2 => { if (res2.error) console.error('Supabase insert retry error:', res2.error); });
+            } else {
+              console.error('Supabase insert error:', res.error);
+            }
+          }
         });
     }
-    // 送信はスクロールがあったときだけ行う（初回は必ず送信）
+    // 送信はスクロールがあったときに行う（初回は必ず送信）
     const SEND_INTERVAL = 5000;
+    const SCROLL_STOP_DEBOUNCE = 250; // スクロール停止検出のデバウンス(ms)
+    const STAY_DURATION = 10000; // 10秒以上滞在したら stayed=true を送る
+
     let scrollDirty = false;
-    // マウスホイールやタッチスクロールなどでスクロールが発生したらフラグを立てる
+    let scrollStopTimer = null;
+    let stayTimer = null;
+    let lastSentStayedAt = 0; // 重複送信防止
+
+    // スクロールイベントでフラグを立て、停止検出と滞在判定タイマーを管理する
     window.addEventListener('scroll', () => {
       scrollDirty = true;
+
+      // スクロールが続く間は停止タイマーをリセット
+      if (scrollStopTimer) clearTimeout(scrollStopTimer);
+      if (stayTimer) {
+        clearTimeout(stayTimer);
+        stayTimer = null;
+      }
+
+      // スクロールが停止したと見なすまで待つ
+      scrollStopTimer = setTimeout(() => {
+        // スクロール停止 → 滞在判定タイマーを開始
+        const start = Date.now();
+        stayTimer = setTimeout(() => {
+          // 10秒間移動がなかったので stayed=true で送信
+          // 重複送信防止: 直近で送っていればスキップ
+          if (Date.now() - lastSentStayedAt > STAY_DURATION) {
+            sendScrollPosition(true);
+            lastSentStayedAt = Date.now();
+          }
+        }, STAY_DURATION);
+      }, SCROLL_STOP_DEBOUNCE);
     }, { passive: true });
 
     // 初回送信
     sendScrollPosition();
 
-    // 定期チェックでスクロールが発生していれば送信する
+    // 定期チェックでスクロールが発生していれば送信する（stayed は上のロジックで送る）
     setInterval(() => {
       if (scrollDirty) {
-        sendScrollPosition();
+        sendScrollPosition(false);
         scrollDirty = false;
       }
     }, SEND_INTERVAL);
@@ -94,10 +134,10 @@ fetch(chrome.runtime.getURL('config.json'))
       try {
         const res = await supabaseClient
           .from('ghost_positions')
-          .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, created_at')
+          .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, stayed, created_at')
           .gte('created_at', oneMinuteAgo)
-          .eq('page_url', currentPage)
-          .neq('session_id', sessionId);
+          .eq('page_url', currentPage);
+        //  .neq('session_id', sessionId);
 
         let data = res.data || [];
         if (!data.length) {
@@ -111,7 +151,7 @@ fetch(chrome.runtime.getURL('config.json'))
         try {
           const q = await supabaseClient
             .from('ghost_positions')
-            .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, created_at')
+            .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, stayed, created_at')
             .gte('created_at', oneMinuteAgo)
             .eq('page_url', currentPage)
             .neq('session_id', sessionId)
@@ -123,13 +163,41 @@ fetch(chrome.runtime.getURL('config.json'))
           data = data.slice(-MAX_GHOSTS);
         }
 
+        // セッションごとに最新の "滞在（stayed）" レコードを選ぶ。
+        // フォールバック: stayed カラムが無い場合は created_at が現在から >=STAY_DURATION のものを滞在とみなす。
+        const now = Date.now();
+        const sessions = new Map();
+        data.forEach(r => {
+          const sid = r.session_id || '__unknown__';
+          if (!sessions.has(sid)) sessions.set(sid, []);
+          sessions.get(sid).push(r);
+        });
+
+        const rowsToShow = [];
+        sessions.forEach((rows) => {
+          // created_at 降順にソートして最新順にする
+          rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+          // まず stayed === true の最新を探す
+          let picked = rows.find(r => r.stayed === true);
+          if (!picked) {
+            // stayed が無いか false の場合、created_at が STAY_DURATION 以上前の最新レコードを探す
+            picked = rows.find(r => (now - new Date(r.created_at).getTime()) >= STAY_DURATION);
+          }
+          if (picked) rowsToShow.push(picked);
+        });
+
+        // 最新のものを優先して上限まで使う
+        rowsToShow.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const show = rowsToShow.slice(0, MAX_GHOSTS);
+
         // レコード数に応じてゴースト数を合わせる（1データ = 1ゴースト）
-        ensureGhostCount(data.length);
+        ensureGhostCount(show.length);
 
         const currentScrollY = window.scrollY;
         const currentScrollX = window.scrollX;
 
-        data.forEach((row, idx) => {
+        show.forEach((row, idx) => {
           const ghost = ghosts[idx];
           if (!ghost) return;
 
@@ -137,12 +205,10 @@ fetch(chrome.runtime.getURL('config.json'))
           const vh = Number(row.viewport_height) || window.innerHeight;
           const docCenterY = scrollTop + vh / 2;
 
-          // 横位置は送られていれば使い、なければビューポート中心を使う
           const scrollLeft = row.scroll_left != null ? Number(row.scroll_left) : null;
           const vw = Number(row.viewport_width) || window.innerWidth;
           const docCenterX = (scrollLeft != null ? scrollLeft : 0) + vw / 2;
 
-          // 少しランダムに振る
           const jitterY = (Math.random() * 60 - 30);
           const jitterX = (Math.random() * 120 - 60);
 
