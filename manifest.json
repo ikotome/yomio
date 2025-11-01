@@ -4,6 +4,7 @@
   "version": "1.0",
   "description": "ユーザーが見ている画面内をゴーストがふわふわ動く拡張",
   "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
