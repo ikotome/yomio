@@ -19,13 +19,20 @@ function createGhostElement() {
   g.style.width = `${GHOST_W}px`;
   g.style.height = `${GHOST_H}px`;
   g.style.pointerEvents = "none";
+  g.style.zIndex = '9999';
+  g.style.opacity = '1';
+  g.style.display = 'block';
+  g.style.left = '0px';
+  g.style.top = '0px';
   g.style.transition = "top 1.5s ease-in-out, left 1.5s ease-in-out";
   document.body.appendChild(g);
+  console.debug('[ghost] created element', g);
   return g;
 }
 
 function ensureGhostCount(n) {
   const target = Math.max(0, Math.min(n, MAX_GHOSTS));
+  console.debug('[ghost] ensureGhostCount target=', target, 'current=', ghosts.length);
   while (ghosts.length < target) {
     ghosts.push(createGhostElement());
   }
@@ -102,11 +109,13 @@ fetch(chrome.runtime.getURL('config.json'))
     // -------------------------------
     async function moveGhosts() {
       const oneMinuteAgo = new Date(Date.now() - 60*1000).toISOString();
+      console.debug('[ghost] moveGhosts called at', new Date().toISOString());
       try {
+        // 初回取得は時間で絞りすぎると行が0件になることがあるため
+        // まずは page_url と session を条件に取得してみる（時間条件はサーバー側の ordered fetch で試す）
         const res = await supabaseClient
           .from('ghost_positions')
           .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, stayed, created_at')
-          .gte('created_at', oneMinuteAgo)
           .eq('page_url', currentPage)
           .neq('session_id', sessionId);
 
@@ -116,6 +125,7 @@ fetch(chrome.runtime.getURL('config.json'))
         }
 
         let data = res.data || [];
+        console.debug('[ghost] fetched rows:', data.length, data.slice(0,5));
         if (!data.length) {
           // 既存ゴーストは消す
           ensureGhostCount(0);
@@ -139,6 +149,7 @@ fetch(chrome.runtime.getURL('config.json'))
           } else {
             data = q.data || data.slice(0, MAX_GHOSTS);
           }
+          console.debug('[ghost] ordered fetch rows:', data.length, data.slice(0,5));
         } catch (e) {
           // サーバー側でのソート/制限が使えない場合はクライアント側でトリム
           data = data.slice(-MAX_GHOSTS);
@@ -161,6 +172,7 @@ fetch(chrome.runtime.getURL('config.json'))
         const show = Array.from(latestBySession.values())
           .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
           .slice(0, MAX_GHOSTS);
+        console.debug('[ghost] show rows:', show.length, show.map(r => ({sid: r.session_id, at: r.created_at, stayed: r.stayed}))); 
 
         // レコード数に応じてゴースト数を合わせる（1データ = 1ゴースト）
         ensureGhostCount(show.length);
@@ -191,6 +203,7 @@ fetch(chrome.runtime.getURL('config.json'))
 
           ghost.style.top = `${top}px`;
           ghost.style.left = `${left}px`;
+          console.debug('[ghost] positioned', idx, {top, left, session_id: row.session_id});
         });
       } catch (err) {
         console.error('Supabase select error:', err);
