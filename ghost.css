@@ -1,4 +1,4 @@
-#ghost {
+.ghost {
   z-index: 9999;
   opacity: 0.95;
   transform-origin: center;
