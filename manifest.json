@@ -11,13 +11,12 @@
       "js": [
         "libs/supabase.min.js",
         "content.js"
-      ],
-      "css": ["ghost.css"]
+      ]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/ghost.svg"],
+      "resources": ["assets/ghost.svg", "config.json"],
       "matches": ["<all_urls>"]
     }
   ]
