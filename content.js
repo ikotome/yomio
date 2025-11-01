@@ -53,15 +53,12 @@ fetch(chrome.runtime.getURL('config.json'))
     // 人気エリアにゴースト移動（縦横とも集計）
     // -------------------------------
     async function moveGhostToPopularArea() {
-      const { data, error } = await supabaseClient
+      const { data } = await supabaseClient
         .from('ghost_positions')
         .select('scroll_top, viewport_height, viewport_width')
         .gte('created_at', new Date(Date.now() - 60*1000).toISOString());
 
       if (data && data.length) {
-        // -------------------------------
-        // ビン分け（10pxごとに滞在数カウント）
-        // -------------------------------
         const topBins = {};
         const leftBins = {};
 
@@ -72,11 +69,9 @@ fetch(chrome.runtime.getURL('config.json'))
           leftBins[leftBin] = (leftBins[leftBin] || 0) + 1;
         });
 
-        // 最大滞在数ビンを選ぶ
         const maxTopBin = Object.keys(topBins).reduce((a, b) => topBins[a] > topBins[b] ? a : b);
         const maxLeftBin = Object.keys(leftBins).reduce((a, b) => leftBins[a] > leftBins[b] ? a : b);
 
-        // 少しランダムを加えて自然に動かす
         ghost.style.top = `${parseInt(maxTopBin) + Math.random() * 30}px`;
         ghost.style.left = `${parseInt(maxLeftBin) + Math.random() * 30}px`;
       }
