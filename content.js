@@ -67,7 +67,24 @@ fetch(chrome.runtime.getURL('config.json'))
           if (res.error) console.error('Supabase insert error:', res.error);
         });
     }
-    setInterval(sendScrollPosition, 5000);
+    // 送信はスクロールがあったときだけ行う（初回は必ず送信）
+    const SEND_INTERVAL = 5000;
+    let scrollDirty = false;
+    // マウスホイールやタッチスクロールなどでスクロールが発生したらフラグを立てる
+    window.addEventListener('scroll', () => {
+      scrollDirty = true;
+    }, { passive: true });
+
+    // 初回送信
+    sendScrollPosition();
+
+    // 定期チェックでスクロールが発生していれば送信する
+    setInterval(() => {
+      if (scrollDirty) {
+        sendScrollPosition();
+        scrollDirty = false;
+      }
+    }, SEND_INTERVAL);
 
     // -------------------------------
     // 人気位置にゴーストを移動
@@ -79,7 +96,8 @@ fetch(chrome.runtime.getURL('config.json'))
           .from('ghost_positions')
           .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, created_at')
           .gte('created_at', oneMinuteAgo)
-          .eq('page_url', currentPage);
+          .eq('page_url', currentPage)
+          .neq('session_id', sessionId);
 
         let data = res.data || [];
         if (!data.length) {
@@ -96,6 +114,7 @@ fetch(chrome.runtime.getURL('config.json'))
             .select('session_id, page_url, scroll_top, scroll_left, viewport_height, viewport_width, created_at')
             .gte('created_at', oneMinuteAgo)
             .eq('page_url', currentPage)
+            .neq('session_id', sessionId)
             .order('created_at', { ascending: false })
             .limit(MAX_GHOSTS);
           data = q.data || data.slice(0, MAX_GHOSTS);
