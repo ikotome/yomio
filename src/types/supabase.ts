@@ -1,5 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
+// Supabaseのスキーマをこれに合わせる
 export type Database = {
   public: {
     Tables: {
