@@ -4,7 +4,7 @@ import { debounce } from './debounce';
 import { ghosts, ensureGhostCount, cleanupGhosts, GHOST_H, GHOST_W, MAX_GHOSTS } from './ghostDom';
 import type { GhostInsert, GhostRow } from '../lib/supabaseHelpers';
 
-export async function initGhostSync() {
+export async function initGhostSync(): Promise<() => void> {
   try {
     const res = await fetch(chrome.runtime.getURL('config.json'));
     const config = await res.json();
@@ -114,7 +114,7 @@ export async function initGhostSync() {
     window.addEventListener('resize', boundMove);
     moveGhosts();
 
-    function cleanup() {
+  function cleanup() {
       if (moveIntervalId) {
         clearInterval(moveIntervalId);
         moveIntervalId = null;
@@ -130,8 +130,11 @@ export async function initGhostSync() {
       try { sendScrollPosition(true); } catch { /* ignore */ }
       cleanup();
     });
-
+    // 呼び出し側で停止できるように cleanup を返す
+    return cleanup;
   } catch (e) {
     console.error('initGhostSync error:', e);
   }
+  // 例外時は no-op の停止関数を返す
+  return () => {};
 }

@@ -20,11 +20,11 @@
     }
   ],
   "action": {
-    "default_title": "おばけを探す",
-    "default_popup": "src/pages/index.html#popup"
+    "default_title": "Yomio",
+  "default_popup": "src/pages/index.html#popup"
   },
   "options_ui": {
-    "page": "src/pages/index.html#settings",
+  "page": "src/pages/index.html#settings",
     "open_in_tab": true
   }
 }
